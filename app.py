@@ -23,24 +23,25 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 
 def compute_k(n_peers, nines):
     """
-    Compute the gossip fan-out parameter k.
-
-    Ensures that the probability of failure over N peers is at most 10^(-nines):
-        N^(2 - 2k) ≤ 10^(-nines)
-    which yields k ≥ 1 + (nines * ln(10)) / (2 * ln(N)).
+    Compute k for a one-shot k-out overlay so that failure ≤ 10^(-nines):
+        k ≥ ln(n_peers) + nines * ln(10)
 
     Args:
-        n_peers (int): Number of peers currently in the network.
-        nines (int): The number of 9s of reliability required.
+        n_peers (int): total number of peers
+        nines   (int): reliability in nines (e.g. 3 for 10^-3)
 
     Returns:
-        int: The computed k, clamped to [0, n_peers].
+        int: the fan-out k, clamped to [1, n_peers]
     """
-    print(n_peers, nines)
+    # trivial cases
     if n_peers <= 1 or nines is None:
-        return min(n_peers, 3)
-    raw = math.ceil(1 + (nines * math.log(10)) / (2 * math.log(n_peers)))
-    return min(n_peers, raw)
+        return n_peers
+
+    # static overlay formula
+    k = math.ceil(math.log(n_peers) + nines * math.log(10))
+
+    # can’t pick more than N peers
+    return min(n_peers, max(1, k))
 
 # dict {'peer_id': 'socket_id'}
 peers = {}
