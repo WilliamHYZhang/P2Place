@@ -2,6 +2,9 @@ import math
 import os
 import random
 
+import eventlet
+eventlet.monkey_patch()
+
 from dotenv import load_dotenv
 
 from flask import Flask, render_template, request
@@ -12,13 +15,16 @@ load_dotenv()
 # which overlay to serve (fullmesh vs kgossip)
 MODE = os.environ.get('MODE', 'fullmesh')
 
-# if set, compute k so that failure ≤ 10^(-nines) for N peers. If not set, k will default to 3.
-NINES = int(os.environ.get('NINES'))
+# if set, compute k so that failure ≤ 10^(-nines) for N peers. If not set, NINES will be None.
+nines_env = os.getenv('NINES')
+NINES = int(nines_env) if nines_env else None
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
 app.config['MODE'] = MODE
 app.config['NINES'] = NINES
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 def compute_k(n_peers, nines):
@@ -28,7 +34,7 @@ def compute_k(n_peers, nines):
 
     Args:
         n_peers (int): total number of peers
-        nines   (int): reliability in nines (e.g. 3 for 10^-3)
+        nines   (int|None): reliability in nines (e.g. 3 for 10^-3)
 
     Returns:
         int: the fan-out k, clamped to [1, n_peers]
@@ -45,6 +51,11 @@ def compute_k(n_peers, nines):
 
 # dict {'peer_id': 'socket_id'}
 peers = {}
+
+@app.route('/health')
+def health():
+    """Lightweight health-check endpoint for Render."""
+    return "OK", 200
 
 @app.route('/')
 def index():
@@ -79,7 +90,7 @@ def on_join(data):
     else:
         # k-gossip mode
         k = compute_k(len(peers), nines=app.config['NINES'])
-        sample = random.sample(list(peers.keys()), k)
+        sample = random.sample(list(peers.keys()), k) if peers else []
         # tell the new client about the random sample of k clients
         emit('peers', { 'peers': sample })
         # tell those k clients about the new peer
@@ -120,5 +131,9 @@ def on_disconnect():
     if gone:
         emit('peer-disconnected', { 'peerId': gone }, broadcast=True)
 
+# Expose the WSGI application for Gunicorn
+application = app
+
 if __name__ == '__main__':
+    # Local dev server with eventlet
     socketio.run(app, host='0.0.0.0', port=5000)
