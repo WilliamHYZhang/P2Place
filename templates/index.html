@@ -139,6 +139,11 @@
     </div>
   </div>
 
+  <script>
+    // "fullmesh" or "kgossip"
+    const MODE = "{{ mode }}";
+  </script>
+
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
 
   <!-- main application logic -->
@@ -179,10 +184,11 @@
     function applyUpdate(msg) {
       const key = msg.x + ',' + msg.y;
       const old = state[key] || { clk: 0, id: "", color: "#FFFFFF" };
-      if (msg.clk < old.clk) return;
-      if (msg.clk === old.clk && msg.id <= old.id) return;
+      if (msg.clk < old.clk) return false;
+      if (msg.clk === old.clk && msg.id <= old.id) return false;
       state[key] = { clk: msg.clk, id: msg.id, color: msg.color };
       paintPixel(msg.x, msg.y, msg.color);
+      return true;
     }
 
     /**
@@ -236,7 +242,9 @@
         const msg = JSON.parse(e.data);
         switch (msg.type) {
           case 'pixel':
-            applyUpdate(msg);
+            if (MODE == 'kgossip' && applyUpdate(msg)) {
+              broadcast(msg);
+            }
             break;
           case 'sync_req':
             handleSyncReq(dc);

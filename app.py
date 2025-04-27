@@ -65,7 +65,7 @@ def index():
     Returns:
         str: Rendered HTML of index.html.
     """
-    return render_template('index.html')
+    return render_template('index.html', mode=app.config['MODE'])
 
 @socketio.on('join')
 def on_join(data):

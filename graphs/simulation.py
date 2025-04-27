@@ -4,6 +4,7 @@ import random
 import statistics
 from collections import deque
 import matplotlib.pyplot as plt
+import numpy as np
 
 # ----------------- Helpers -----------------
 
@@ -19,14 +20,10 @@ def compute_k(n_peers, nines):
     Returns:
         int: the fan-out k, clamped to [1, n_peers]
     """
-    # trivial cases
     if n_peers <= 1 or nines is None:
         return n_peers
 
-    # static overlay formula
     k = math.ceil(math.log(n_peers) + nines * math.log(10))
-
-    # can’t pick more than N peers
     return min(n_peers, max(1, k))
 
 def build_overlay(n_peers, k):
@@ -66,7 +63,7 @@ def propagate(graph):
                 dist[v] = dist[u] + 1
                 q.append(v)
 
-    reached = sum(1 for x in visited if x)
+    reached = sum(visited)
     k = len(graph[0])
     total_msgs = reached * k
     rounds = max(dist) if reached == n else None
@@ -76,11 +73,13 @@ def propagate(graph):
 
 def main():
     # parameters
-    N_values    = [100, 1_000, 10_000]
+    N_values    = [100, 1_000, 5_000, 10_000, 25_000, 50_000]
     nines_list  = [5, 7, 9]
     reps        = 3
     per_msg_latency = 0.001   # 1 ms per message
     packet_size     = 1024    # bytes per message
+    cpu_cycles_per_msg = 1000 # cycles per message
+    cpu_freq          = 2e9   # cycles per second
 
     # storage
     results = {
@@ -92,7 +91,7 @@ def main():
     for N in N_values:
         # full-mesh: 1 round, (N-1) messages from node0
         fm_rounds = 1
-        fm_msgs   = N-1
+        fm_msgs   = N - 1
         fm_time   = fm_msgs * per_msg_latency
 
         results['fullmesh']['rounds'].append(fm_rounds)
@@ -100,16 +99,18 @@ def main():
         results['fullmesh']['time'].append(fm_time)
 
         for nines in nines_list:
-            ks = []
-            rs = []
-            ms = []
-            ts = []
+            rs, ms, ts = [], [], []
+            k = compute_k(N, nines)
+
             for _ in range(reps):
-                k = compute_k(N, nines)
                 graph = build_overlay(N, k)
                 r, m, _ = propagate(graph)
-                t = m * per_msg_latency
-                ks.append(k); rs.append(r); ms.append(m); ts.append(t)
+                # time = rounds * k * per-message latency
+                t = r * k * per_msg_latency
+                rs.append(r)
+                ms.append(m)
+                ts.append(t)
+
             results[nines]['rounds'].append(statistics.mean(rs))
             results[nines]['msgs'].append(statistics.mean(ms))
             results[nines]['time'].append(statistics.mean(ts))
@@ -146,22 +147,34 @@ def main():
     plt.title(f'Propagation Time (@{per_msg_latency*1000:.0f}ms/msg)')
     plt.legend()
 
-    # 4) Histogram at N=100 for bytes per peer
+    # 4) Per-Peer Bytes Histogram at N=100
     N_hist, n9 = 100, 5
     k_hist = compute_k(N_hist, n9)
-    # full-mesh per-peer bytes
-    fm_bytes = [ (N_hist-1)*packet_size ] + [0]*(N_hist-1)
-    # gossip per-peer bytes (each peer sends exactly k once)
-    kg_bytes = [k_hist*packet_size]*N_hist
-    print(fm_bytes)
-    print(kg_bytes)
+    fm_bytes = [(N_hist-1)*packet_size] + [0]*(N_hist-1)
+    kg_bytes = [k_hist*packet_size] * N_hist
+    max_val = max(max(fm_bytes), max(kg_bytes))
+    bins    = np.linspace(0, max_val, 100)
 
     plt.figure()
-    plt.hist(fm_bytes, bins=100, alpha=0.6, label='full-mesh')
-    plt.hist(kg_bytes, bins=100, alpha=0.6, label=f'gossip ({n9}-nines)')
+    plt.hist(fm_bytes, bins=bins, alpha=0.6, label='full-mesh')
+    plt.hist(kg_bytes, bins=bins, alpha=0.6, label=f'gossip ({n9}-nines)')
     plt.xlabel('Bytes Sent Per Peer')
     plt.ylabel('Number of Peers')
-    plt.title(f'Per-Peer Bytes (N={N_hist})')
+    plt.title(f'Per-Peer Bytes Sent (N={N_hist})')
+    plt.legend()
+
+    # 5) Per-Peer CPU Time Histogram at N=100
+    fm_cpu = [((N_hist-1)*cpu_cycles_per_msg)/cpu_freq] + [0]*(N_hist-1)
+    kg_cpu = [(k_hist*cpu_cycles_per_msg)/cpu_freq] * N_hist
+    max_cpu = max(max(fm_cpu), max(kg_cpu))
+    cpu_bins = np.linspace(0, max_cpu, 100)
+
+    plt.figure()
+    plt.hist(fm_cpu, bins=cpu_bins, alpha=0.6, label='full-mesh')
+    plt.hist(kg_cpu, bins=cpu_bins, alpha=0.6, label=f'gossip ({n9}-nines)')
+    plt.xlabel('CPU Time Per Peer (s)')
+    plt.ylabel('Number of Peers')
+    plt.title(f'Per-Peer CPU Time (N={N_hist})')
     plt.legend()
 
     plt.show()

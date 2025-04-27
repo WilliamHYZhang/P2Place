@@ -3,5 +3,6 @@ flask
 flask-socketio
 eventlet
 matplotlib
+numpy
 selenium
 webdriver-manager
