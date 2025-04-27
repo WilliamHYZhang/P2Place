@@ -52,27 +52,44 @@
     const ctx = cvs.getContext('2d');
     ctx.scale(SCALE, SCALE);
     ctx.fillStyle = '#FFFFFF';
-    // ctx.fillRect(0, 0, SIZE, SIZE);
 
-    function paintPixel(x,y,color){
+    /**
+     * Paints a single pixel on the canvas.
+     * @param {number} x - The x-coordinate (in grid units).
+     * @param {number} y - The y-coordinate (in grid units).
+     * @param {string} color - The fill color (hex string).
+     */
+    function paintPixel(x, y, color) {
       ctx.fillStyle = color;
-      ctx.fillRect(x,y,1,1);
+      ctx.fillRect(x, y, 1, 1);
     }
 
-    // conflict-free replicated data type (CRDT) update
-    function applyUpdate(msg){
+    /**
+     * Applies a CRDT update message to local state and renders it.
+     * Ensures causal ordering via Lamport clocks and peer IDs.
+     * @param {Object} msg - The update message.
+     * @param {number} msg.x - X grid coordinate.
+     * @param {number} msg.y - Y grid coordinate.
+     * @param {number} msg.clk - Lamport timestamp.
+     * @param {string} msg.id - Peer ID of the sender.
+     * @param {string} msg.color - Color to paint.
+     */
+    function applyUpdate(msg) {
       const key = msg.x + ',' + msg.y;
-      const old = state[key] || { clk:0, id:"", color:"#FFFFFF" };
+      const old = state[key] || { clk: 0, id: "", color: "#FFFFFF" };
       if (msg.clk < old.clk) return;
       if (msg.clk === old.clk && msg.id <= old.id) return;
       state[key] = { clk: msg.clk, id: msg.id, color: msg.color };
       paintPixel(msg.x, msg.y, msg.color);
     }
 
-    // broadcast pixel updates
-    function broadcast(msg){
+    /**
+     * Broadcasts a message object to all connected peers.
+     * @param {Object} msg - The message to broadcast; will be JSON.stringifed.
+     */
+    function broadcast(msg) {
       const s = JSON.stringify(msg);
-      for(const pid in peers){
+      for (const pid in peers) {
         const dc = peers[pid].dc;
         if (dc && dc.readyState === 'open') {
           dc.send(s);
@@ -80,40 +97,42 @@
       }
     }
 
-    // handle pixel click
-    cvs.addEventListener('click', e => {
-      const rect = cvs.getBoundingClientRect();
-      const x = Math.floor((e.clientX - rect.left)/SCALE);
-      const y = Math.floor((e.clientY - rect.top)/SCALE);
-      const color = document.getElementById('colorPicker').value;
-      lamport++;
-      const msg = { type:'pixel', x, y, color, clk:lamport, id:peerId };
-      applyUpdate(msg);
-      broadcast(msg);
-    });
-
-    // sync functions for new peers
-    function handleSyncReq(dc){
+    /**
+     * Handles an incoming sync request: sends the entire canvas state.
+     * @param {RTCDataChannel} dc - The data channel to respond on.
+     */
+    function handleSyncReq(dc) {
       const cells = [];
-      for(const key in state){
-        const [x,y] = key.split(',').map(Number);
-        const { clk,id,color } = state[key];
-        cells.push({ x,y,clk,id,color });
+      for (const key in state) {
+        const [x, y] = key.split(',').map(Number);
+        const { clk, id, color } = state[key];
+        cells.push({ x, y, clk, id, color });
       }
-      dc.send(JSON.stringify({ type:'sync_res', cells }));
+      dc.send(JSON.stringify({ type: 'sync_res', cells }));
     }
-    function handleSyncRes(msg){
+
+    /**
+     * Processes a sync response by applying each cell update.
+     * @param {Object} msg - The sync response message.
+     * @param {Array} msg.cells - Array of cell update objects.
+     */
+    function handleSyncRes(msg) {
       msg.cells.forEach(c => applyUpdate(c));
     }
 
-    // setup connection
-    function setupDC(remoteId, dc){
+    /**
+     * Sets up event handlers on a newly opened DataChannel.
+     * Initiates a state sync request immediately on open.
+     * @param {string} remoteId - Peer ID on the other end.
+     * @param {RTCDataChannel} dc - The data channel to configure.
+     */
+    function setupDC(remoteId, dc) {
       dc.onopen = () => {
-        dc.send(JSON.stringify({ type:'sync_req' }));
+        dc.send(JSON.stringify({ type: 'sync_req' }));
       };
       dc.onmessage = e => {
         const msg = JSON.parse(e.data);
-        switch(msg.type){
+        switch (msg.type) {
           case 'pixel':
             applyUpdate(msg);
             break;
@@ -127,60 +146,22 @@
       };
     }
 
-    // signal via socket.io with server
-    const socket = io();
-    socket.on('connect', () => {
-      socket.emit('join', { peerId });
-    });
-
-    socket.on('peers', data => {
-      data.peers.forEach(id => connectToPeer(id));
-    });
-    socket.on('peer-joined', data => {
-      connectToPeer(data.peerId);
-    });
-    socket.on('peer-disconnected', data => {
-      const p = peers[data.peerId];
-      if(p){
-        p.dc.close();
-        p.pc.close();
-        delete peers[data.peerId];
-      }
-    });
-    // initial handshake logic for new peers
-    socket.on('signal', async data => {
-      const { from, signal } = data;
-      if(!peers[from]) connectToPeer(from, false);
-      const { pc } = peers[from];
-
-      if(signal.description){
-        await pc.setRemoteDescription(signal.description);
-        if(signal.description.type === 'offer'){
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          socket.emit('signal', {
-            to: from, from: peerId,
-            signal: { description: pc.localDescription }
-          });
-        }
-      }
-      if(signal.candidate){
-        try { await pc.addIceCandidate(signal.candidate); }
-        catch(err){ console.warn('ICE err', err); }
-      }
-    });
-
-    function connectToPeer(remoteId){
-      if(peers[remoteId]) return;
+    /**
+     * Connects to a remote peer via WebRTC.
+     * Creates RTCPeerConnection, handles ICE, and opens a DataChannel if initiator.
+     * @param {string} remoteId - Peer ID to connect to.
+     */
+    function connectToPeer(remoteId) {
+      if (peers[remoteId]) return;
       const isInitiator = peerId > remoteId;
       const pc = new RTCPeerConnection({
-        iceServers: [{ urls:'stun:stun.l.google.com:19302' }]
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
       });
       let dc;
-      peers[remoteId] = { pc, dc:null };
+      peers[remoteId] = { pc, dc: null };
 
       pc.onicecandidate = e => {
-        if(e.candidate){
+        if (e.candidate) {
           socket.emit('signal', {
             to: remoteId, from: peerId,
             signal: { candidate: e.candidate }
@@ -194,7 +175,7 @@
         setupDC(remoteId, dc);
       };
 
-      if(isInitiator){
+      if (isInitiator) {
         dc = pc.createDataChannel('p2p');
         peers[remoteId].dc = dc;
         setupDC(remoteId, dc);
@@ -209,6 +190,50 @@
           });
       }
     }
+
+    cvs.addEventListener('click', e => {
+      const rect = cvs.getBoundingClientRect();
+      const x = Math.floor((e.clientX - rect.left) / SCALE);
+      const y = Math.floor((e.clientY - rect.top) / SCALE);
+      const color = document.getElementById('colorPicker').value;
+      lamport++;
+      const msg = { type: 'pixel', x, y, color, clk: lamport, id: peerId };
+      applyUpdate(msg);
+      broadcast(msg);
+    });
+
+    const socket = io();
+    socket.on('connect', () => socket.emit('join', { peerId }));
+    socket.on('peers', data => data.peers.forEach(id => connectToPeer(id)));
+    socket.on('peer-joined', data => connectToPeer(data.peerId));
+    socket.on('peer-disconnected', data => {
+      const p = peers[data.peerId];
+      if (p) {
+        p.dc.close();
+        p.pc.close();
+        delete peers[data.peerId];
+      }
+    });
+    socket.on('signal', async data => {
+      const { from, signal } = data;
+      if (!peers[from]) connectToPeer(from);
+      const { pc } = peers[from];
+      if (signal.description) {
+        await pc.setRemoteDescription(signal.description);
+        if (signal.description.type === 'offer') {
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socket.emit('signal', {
+            to: from, from: peerId,
+            signal: { description: pc.localDescription }
+          });
+        }
+      }
+      if (signal.candidate) {
+        try { await pc.addIceCandidate(signal.candidate); }
+        catch (err) { console.warn('ICE err', err); }
+      }
+    });
   })();
   </script>
 </body>

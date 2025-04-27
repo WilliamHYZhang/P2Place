@@ -1,3 +1,5 @@
+dotenv
 flask
 flask-socketio
 eventlet
+matplotlib
