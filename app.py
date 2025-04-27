@@ -71,7 +71,7 @@ def on_join(data):
 
     if app.config['MODE'] == 'fullmesh':
         # tell the new client about all other peers
-        emit('peers', { 'peers': peers.keys() })
+        emit('peers', { 'peers': list(peers.keys()) })
         # tell all other peers about the new client
         emit('peer-joined', { 'peerId': peer_id }, broadcast=True, include_self=False)
         peers[peer_id] = request.sid
