@@ -370,7 +370,7 @@
     function minScale(){ return Math.max(container.clientWidth/800, container.clientHeight/800); }
     function setResetLabel(){ const pct=Math.round(scale*100); resetBtn.textContent=(Math.abs(pct-100)<=1?100:pct)+'%'; }
     function clamp(){
-      scale=Math.min(Math.max(scale,minScale()),MAX_SCALE);
+      scale=Math.round(Math.min(Math.max(scale, minScale()), MAX_SCALE));
       const minX=Math.min(container.clientWidth-800*scale,0), minY=Math.min(container.clientHeight-800*scale,0);
       origin.x=Math.min(0,Math.max(minX,origin.x));
       origin.y=Math.min(0,Math.max(minY,origin.y));
