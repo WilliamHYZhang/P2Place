@@ -1,5 +1,5 @@
 import math
-import os
+import os, time, hmac, hashlib, base64
 import random
 
 import eventlet
@@ -7,7 +7,7 @@ eventlet.monkey_patch()
 
 from dotenv import load_dotenv
 
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit
 
 load_dotenv()
@@ -18,6 +18,9 @@ MODE = os.environ.get('MODE', 'fullmesh')
 # if set, compute k so that failure ≤ 10^(-nines) for N peers. If not set, NINES will be None.
 nines_env = os.getenv('NINES')
 NINES = int(nines_env) if nines_env else None
+
+TURN_SECRET = bytes.fromhex(os.environ['TURN_SECRET'])
+TURN_URLS   = os.environ['TURN_URLS'].split(',')
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
@@ -56,6 +59,25 @@ peers = {}
 def health():
     """Lightweight health-check endpoint for Render."""
     return "OK", 200
+
+def make_turn_token(identity: str, ttl: int = 24*3600):
+    username = f"{int(time.time()) + ttl}:{identity}"
+    pwd = base64.b64encode(
+        hmac.new(TURN_SECRET, username.encode(), hashlib.sha1).digest()
+    ).decode()
+    return {"username": username, "credential": pwd}
+
+@app.route("/turn-token")
+def turn_token():
+    peer_id = request.args.get("id", "anon")
+    return jsonify({
+        "iceServers": [
+            {"urls": "stun:stun.l.google.com:19302"},
+            {"urls": TURN_URLS,
+             "username": (t := make_turn_token(peer_id))["username"],
+             "credential": t["credential"]}
+        ]
+    })
 
 @app.route('/')
 def index():

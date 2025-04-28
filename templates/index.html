@@ -261,10 +261,14 @@
      * Creates RTCPeerConnection, handles ICE, and opens a DataChannel if initiator.
      * @param {string} remoteId - Peer ID to connect to.
      */
-    function connectToPeer(remoteId) {
+    async function getIce() {
+      const res = await fetch('/turn-token?id=' + peerId);
+      return (await res.json()).iceServers;
+    }
+    async function connectToPeer(remoteId) {
       if (peers[remoteId]) return;
       const isInitiator = peerId > remoteId;
-      const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+      const pc = new RTCPeerConnection({ iceServers: await getIce() });
       let dc;
       peers[remoteId] = { pc, dc: null };
 
