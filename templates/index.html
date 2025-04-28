@@ -307,14 +307,13 @@
     socket.on('connect', () => socket.emit('join', { peerId }));
     socket.on('peers', data => data.peers.forEach(id => connectToPeer(id)));
     socket.on('peer-joined', data => connectToPeer(data.peerId));
-    socket.on('peer-disconnected', data => {
-      const p = peers[data.peerId];
-      if (p) {
-        p.dc.close();
-        p.pc.close();
-        delete peers[data.peerId];
-      }
-    });
+    socket.on('peer-disconnected', ({ peerId }) => {
+    const p = peers[peerId];
+    if (!p) return;
+    try { p.dc?.close(); } catch (_) {}
+    try { p.pc?.close(); } catch (_) {}
+    delete peers[peerId];
+  });
     socket.on('signal', async data => {
       const { from, signal } = data;
       if (!peers[from]) connectToPeer(from);
