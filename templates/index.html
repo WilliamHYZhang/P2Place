@@ -139,16 +139,12 @@
     </div>
   </div>
 
-  <script>
-    // "fullmesh" or "kgossip"
-    const MODE = "{{ mode }}";
-  </script>
-
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
 
   <!-- main application logic -->
   <script>
   (function(){
+    const MODE = "{{ mode }}";
     const peerId = crypto.randomUUID();
     let lamport = 0;
     const peers = {};          // peerId -> { pc, dc }
