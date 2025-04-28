@@ -72,6 +72,7 @@ def turn_token():
     peer_id = request.args.get("id", "anon")
     return jsonify({
         "iceServers": [
+            {"urls": "stun:stun.l.google.com:19302"},
             {"urls": TURN_URLS,
              "username": (t := make_turn_token(peer_id))["username"],
              "credential": t["credential"]}
