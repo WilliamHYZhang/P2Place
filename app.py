@@ -1,3 +1,6 @@
+import eventlet
+eventlet.monkey_patch()
+
 import math
 import os, time, hmac, hashlib, base64
 import random
