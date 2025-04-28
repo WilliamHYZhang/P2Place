@@ -257,14 +257,14 @@
      * Creates RTCPeerConnection, handles ICE, and opens a DataChannel if initiator.
      * @param {string} remoteId - Peer ID to connect to.
      */
-    async function getIce() {
+    const iceServersPromise = (async () => {
       const res = await fetch('/turn-token?id=' + peerId);
       return (await res.json()).iceServers;
-    }
+    })();
     async function connectToPeer(remoteId) {
       if (peers[remoteId]) return;
       const isInitiator = peerId > remoteId;
-      const pc = new RTCPeerConnection({ iceServers: await getIce() });
+      const pc = new RTCPeerConnection({ iceServers: await iceServersPromise });
       let dc;
       peers[remoteId] = { pc, dc: null };
 
@@ -305,8 +305,10 @@
 
     const socket = io();
     socket.on('connect', () => socket.emit('join', { peerId }));
-    socket.on('peers', data => data.peers.forEach(id => connectToPeer(id)));
-    socket.on('peer-joined', data => connectToPeer(data.peerId));
+    socket.on('peers', async data => {
+      for (const id of data.peers) await connectToPeer(id);
+    });
+    socket.on('peer-joined', async ({ peerId }) => await connectToPeer(peerId));
     socket.on('peer-disconnected', ({ peerId }) => {
     const p = peers[peerId];
     if (!p) return;
