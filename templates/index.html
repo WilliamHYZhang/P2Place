@@ -49,8 +49,9 @@
       -webkit-font-smoothing: antialiased;
       display: flex;
       flex-direction: column;
+      overscroll-behavior-y: contain;
     }
-    main { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; padding-bottom: 5rem; }
+    main { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; }
     #canvasContainer {
       position: relative;
       overflow: hidden;
@@ -104,20 +105,24 @@
     .swatch:hover { transform: scale(1.15); }
     .swatch.selected { border-color: #fff; }
 
-    .color-bar { background: rgba(0,0,0,0.45); backdrop-filter: blur(12px); box-shadow: 0 -4px 8px rgba(0,0,0,0.25); }
+    .color-bar { 
+      background: rgba(0,0,0,.45);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 -4px 8px rgba(0,0,0,.25);
+    }
     .btn-outline-light.active { opacity: .5; }
 
     /* mobile tweaks */
     @media (max-width: 576px) {
-      #canvasContainer { max-width: 100vw; max-height: calc(100vh - 120px); }
+      #canvasContainer { max-width:100vw; max-height:calc(100dvh - env(safe-area-inset-bottom) - 64px); }
       .btn-zoom { width: 48px; height: 48px; font-size: 1.5rem; }
       #resetZoom { width: 80px; font-size: .9rem; }
       .swatch { width: 32px; height: 32px; }
     }
   </style>
 </head>
-<body>
-  <main class="pt-4">
+<body class="d-flex flex-column min-vh-100">
+  <main class="flex-grow-1 d-flex flex-column justify-content-center align-items-center">
     <div id="canvasContainer">
       <canvas id="canvas" width="800" height="800"></canvas>
       <div class="zoom-toolbar">
@@ -129,14 +134,15 @@
   </main>
 
   <!-- bottom control bar -->
-  <div class="color-bar fixed-bottom py-2">
+  <footer class="color-bar py-2 w-100">
     <div class="container-fluid d-flex flex-wrap justify-content-center align-items-center gap-2">
       <label for="colorPicker" class="form-label mb-0">Color</label>
       <input type="color" id="colorPicker" class="form-control form-control-color p-0" value="#000000" />
       <div id="swatchContainer" class="d-flex flex-wrap gap-1"></div>
       <button class="btn btn-outline-light btn-sm" id="savePNG" title="Download PNG"><i class="bi bi-download"></i></button>
     </div>
-  </div>
+  </footer>
+
 
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
 
