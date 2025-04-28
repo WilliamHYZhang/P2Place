@@ -8,7 +8,7 @@ eventlet.monkey_patch()
 
 from dotenv import load_dotenv
 
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit, join_room
 
 load_dotenv()
@@ -69,6 +69,9 @@ def compute_k(n_peers, nines):
     # can’t pick more than N peers
     return min(n_peers, max(1, k))
 
+# dict {'peer_id': 'socket_id'} – used locally, but global membership lives in Redis
+peers = {}
+
 # -----------------------------------------------------------------------------
 # HTTP endpoints
 # -----------------------------------------------------------------------------
@@ -125,37 +128,36 @@ def on_join(data):
     """
     peer_id = data['peerId']
 
-    # Persist peerId in the per‑socket session so we can retrieve it on disconnect
-    session['peer_id'] = peer_id
-
     # Every client joins its own room (named by peerId) so we can
     # reliably address it across workers via Redis pub/sub.
     join_room(peer_id)
 
-    # Add to the global live‑peer set (Redis)
+    # Record peer globally (Redis) and locally (dict of sids for the current worker)
     if redis_client:
         redis_client.sadd(PEER_SET, peer_id)
         all_peers = list(redis_client.smembers(PEER_SET))
-        try:
+        if peer_id in all_peers:
             all_peers.remove(peer_id)
-        except ValueError:
-            pass
     else:
-        # No Redis → assume single‑process dev session; no other peers.
-        all_peers = []
+        all_peers = list(peers.keys())
 
     if app.config['MODE'] == 'fullmesh':
-        # Tell the new client about all other peers
-        emit('peers', {'peers': all_peers})
-        # Broadcast the new peer to everyone else
-        emit('peer-joined', {'peerId': peer_id}, broadcast=True, include_self=False)
+        # tell the new client about all other peers
+        emit('peers', { 'peers': all_peers })
+        # broadcast the new peer to everyone else; Flask-SocketIO will fan-out via Redis
+        emit('peer-joined', { 'peerId': peer_id }, broadcast=True, include_self=False)
     else:
-        # k‑gossip mode
+        # k-gossip mode
         k = compute_k(len(all_peers), nines=app.config['NINES'])
         sample = random.sample(all_peers, k) if all_peers else []
-        emit('peers', {'peers': sample})
+        # tell the new client about the random sample of k clients
+        emit('peers', { 'peers': sample })
+        # tell those k clients about the new peer
         for pid in sample:
             emit('peer-joined', {'peerId': peer_id}, room=pid)
+
+    # track socketId locally (needed only for disconnect bookkeeping)
+    peers[peer_id] = request.sid
 
 @socketio.on('signal')
 def on_signal(data):
@@ -169,23 +171,29 @@ def on_signal(data):
             'signal': SDP description or ICE candidate
         }
     """
-    emit('signal', data, room=data['to'])
+    target = data['to']
+    # Target peer is addressed by its room, which spans all workers.
+    emit('signal', data, room=target)
 
 @socketio.on('disconnect')
 def on_disconnect():
     """
     Clean up when a peer disconnects:
-      - remove them from the Redis peer set
+      - remove them from peers set
       - notify remaining peers
     """
-    peer_id = session.get('peer_id')
-    if not peer_id:
-        return
+    gone = None
+    for pid, sid in list(peers.items()):
+        if sid == request.sid:
+            gone = pid
+            del peers[pid]
+            break
 
-    if redis_client:
-        redis_client.srem(PEER_SET, peer_id)
-
-    emit('peer-disconnected', {'peerId': peer_id}, broadcast=True)
+    if gone:
+        # Remove globally so other workers don't consider this peer live
+        if redis_client:
+            redis_client.srem(PEER_SET, gone)
+        emit('peer-disconnected', { 'peerId': gone }, broadcast=True)
 
 # -----------------------------------------------------------------------------
 # WSGI entrypoint (for Gunicorn) & local dev server

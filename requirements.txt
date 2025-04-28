@@ -7,4 +7,3 @@ selenium
 webdriver-manager
 python-dotenv
 gunicorn
-redis
