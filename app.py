@@ -180,7 +180,7 @@ def on_disconnect():
     """
     peer_id = session.get('peer_id')
     if not peer_id:
-        return∂
+        return
 
     if redis_client:
         redis_client.srem(PEER_SET, peer_id)
