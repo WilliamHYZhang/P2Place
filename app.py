@@ -1,7 +1,6 @@
 import math
 import os, time, hmac, hashlib, base64
 import random
-import redis
 
 import eventlet
 eventlet.monkey_patch()
@@ -9,7 +8,7 @@ eventlet.monkey_patch()
 from dotenv import load_dotenv
 
 from flask import Flask, render_template, request, jsonify
-from flask_socketio import SocketIO, emit, join_room
+from flask_socketio import SocketIO, emit
 
 load_dotenv()
 
@@ -23,29 +22,13 @@ NINES = int(nines_env) if nines_env else None
 TURN_SECRET = bytes.fromhex(os.environ['TURN_SECRET'])
 TURN_URLS   = os.environ['TURN_URLS'].split(',')
 
-# ----------------------------------------------------------------------------
-# Redis setup (shared state + Socket.IO message queue)
-# ----------------------------------------------------------------------------
-REDIS_URL = os.environ.get('REDIS_URL')
-redis_client = redis.from_url(REDIS_URL, decode_responses=True) if REDIS_URL else None
-PEER_SET = 'peers'    # Redis set that holds all live peerIds across workers
-
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
 app.config['MODE'] = MODE
 app.config['NINES'] = NINES
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 
-# Redis pub/sub lets many Gunicorn workers share events transparently
-socketio = SocketIO(
-    app,
-    cors_allowed_origins="*",
-    **({'message_queue': REDIS_URL} if REDIS_URL else {})
-)
-
-# -----------------------------------------------------------------------------
-# Utility helpers
-# -----------------------------------------------------------------------------
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 def compute_k(n_peers, nines):
     """
@@ -69,12 +52,8 @@ def compute_k(n_peers, nines):
     # can’t pick more than N peers
     return min(n_peers, max(1, k))
 
-# dict {'peer_id': 'socket_id'} – used locally, but global membership lives in Redis
+# dict {'peer_id': 'socket_id'}
 peers = {}
-
-# -----------------------------------------------------------------------------
-# HTTP endpoints
-# -----------------------------------------------------------------------------
 
 @app.route('/health')
 def health():
@@ -110,10 +89,6 @@ def index():
     """
     return render_template('index.html', mode=app.config['MODE'])
 
-# -----------------------------------------------------------------------------
-# Socket.IO handlers
-# -----------------------------------------------------------------------------
-
 @socketio.on('join')
 def on_join(data):
     """
@@ -128,36 +103,22 @@ def on_join(data):
     """
     peer_id = data['peerId']
 
-    # Every client joins its own room (named by peerId) so we can
-    # reliably address it across workers via Redis pub/sub.
-    join_room(peer_id)
-
-    # Record peer globally (Redis) and locally (dict of sids for the current worker)
-    if redis_client:
-        redis_client.sadd(PEER_SET, peer_id)
-        all_peers = list(redis_client.smembers(PEER_SET))
-        if peer_id in all_peers:
-            all_peers.remove(peer_id)
-    else:
-        all_peers = list(peers.keys())
-
     if app.config['MODE'] == 'fullmesh':
         # tell the new client about all other peers
-        emit('peers', { 'peers': all_peers })
-        # broadcast the new peer to everyone else; Flask-SocketIO will fan-out via Redis
+        emit('peers', { 'peers': list(peers.keys()) })
+        # tell all other peers about the new client
         emit('peer-joined', { 'peerId': peer_id }, broadcast=True, include_self=False)
+        peers[peer_id] = request.sid
     else:
         # k-gossip mode
-        k = compute_k(len(all_peers), nines=app.config['NINES'])
-        sample = random.sample(all_peers, k) if all_peers else []
+        k = compute_k(len(peers), nines=app.config['NINES'])
+        sample = random.sample(list(peers.keys()), k) if peers else []
         # tell the new client about the random sample of k clients
         emit('peers', { 'peers': sample })
         # tell those k clients about the new peer
         for pid in sample:
-            emit('peer-joined', {'peerId': peer_id}, room=pid)
-
-    # track socketId locally (needed only for disconnect bookkeeping)
-    peers[peer_id] = request.sid
+            emit('peer-joined', {'peerId': peer_id}, to=peers[pid])
+        peers[peer_id] = request.sid  
 
 @socketio.on('signal')
 def on_signal(data):
@@ -172,14 +133,15 @@ def on_signal(data):
         }
     """
     target = data['to']
-    # Target peer is addressed by its room, which spans all workers.
-    emit('signal', data, room=target)
+    sid = peers.get(target)
+    if sid:
+        emit('signal', data, to=sid)
 
 @socketio.on('disconnect')
 def on_disconnect():
     """
     Clean up when a peer disconnects:
-      - remove them from peers set
+      - remove them from peers dict
       - notify remaining peers
     """
     gone = None
@@ -188,17 +150,10 @@ def on_disconnect():
             gone = pid
             del peers[pid]
             break
-
     if gone:
-        # Remove globally so other workers don't consider this peer live
-        if redis_client:
-            redis_client.srem(PEER_SET, gone)
         emit('peer-disconnected', { 'peerId': gone }, broadcast=True)
 
-# -----------------------------------------------------------------------------
-# WSGI entrypoint (for Gunicorn) & local dev server
-# -----------------------------------------------------------------------------
-
+# Expose the WSGI application for Gunicorn
 application = app
 
 if __name__ == '__main__':
