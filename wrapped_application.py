@@ -1,4 +1,4 @@
 import eventlet
 eventlet.monkey_patch()
 
-from .application import app
+from .app import app
