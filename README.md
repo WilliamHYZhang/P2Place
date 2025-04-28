@@ -10,3 +10,11 @@ Peer-to-peer implementation of r/place concept
 ## Tests
 
 Run tests with `python3 -m unittest test.py`
+
+## Production
+
+Run server on Render with `gunicorn --worker-class eventlet --workers 1 --bind 0.0.0.0:$PORT app:application`
+
+## TURN
+
+Run a coturn server in a droplet on Digital Ocean and provide UDP and TCP connection options in the env variables

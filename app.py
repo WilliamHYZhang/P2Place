@@ -2,9 +2,6 @@ import math
 import os, time, hmac, hashlib, base64
 import random
 
-import eventlet
-eventlet.monkey_patch()
-
 from dotenv import load_dotenv
 
 from flask import Flask, render_template, request, jsonify
@@ -157,5 +154,6 @@ def on_disconnect():
 application = app
 
 if __name__ == '__main__':
-    # Local dev server with eventlet
+    import eventlet
+    eventlet.monkey_patch()
     socketio.run(app, host='0.0.0.0', port=5000)
