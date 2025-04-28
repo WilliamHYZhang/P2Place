@@ -316,7 +316,8 @@
   });
     socket.on('signal', async data => {
       const { from, signal } = data;
-      if (!peers[from]) connectToPeer(from);
+      if (!peers[from]) await connectToPeer(from);
+      if (!peers[from]) return;
       const { pc } = peers[from];
       if (signal.description) {
         await pc.setRemoteDescription(signal.description);
