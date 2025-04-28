@@ -44,7 +44,6 @@
     html, body {
       height: 100%;
       margin: 0;
-      overflow: hidden;
       background: linear-gradient(135deg, var(--brand-bg-start) 0%, var(--brand-bg-end) 100%);
       color: #e9e9ff;
       -webkit-font-smoothing: antialiased;
@@ -369,15 +368,27 @@
     const resetBtn=document.getElementById('resetZoom');
     function minScale(){ return Math.max(container.clientWidth/800, container.clientHeight/800); }
     function setResetLabel(){ const pct=Math.round(scale*100); resetBtn.textContent=(Math.abs(pct-100)<=1?100:pct)+'%'; }
+    const GRID_UNIT = 8;
+    const snap = s => Math.round(s * GRID_UNIT) / GRID_UNIT;
     function clamp(){
-      scale=Math.round(Math.min(Math.max(scale, minScale()), MAX_SCALE));
+      scale = snap(Math.min(Math.max(scale, minScale()), MAX_SCALE));
       const minX=Math.min(container.clientWidth-800*scale,0), minY=Math.min(container.clientHeight-800*scale,0);
       origin.x=Math.min(0,Math.max(minX,origin.x));
       origin.y=Math.min(0,Math.max(minY,origin.y));
     }
-    function update(){ clamp(); canvas.style.transform=`translate(${origin.x}px,${origin.y}px) scale(${scale})`; window.scaleGlobal=scale; setResetLabel(); }
+    function update(){ 
+      clamp(); 
+      canvas.style.transform = `translate(${origin.x}px,${origin.y}px) scale(${scale})`;
+      window.scaleGlobal=scale; 
+      setResetLabel(); 
+    }
     window.addEventListener('resize',update);
-    function zoomAt(f,cx,cy){ origin.x=cx - (cx-origin.x)*f; origin.y=cy - (cy-origin.y)*f; scale*=f; update(); }
+    function zoomAt (factor, cx, cy) {
+      origin.x = cx - (cx - origin.x) * factor;
+      origin.y = cy - (cy - origin.y) * factor;
+      scale    = snap(scale * factor);
+      update();
+    }
     container.addEventListener('wheel',e=>{ e.preventDefault(); const f=e.deltaY<0?1.1:0.9; const rect=canvas.getBoundingClientRect(); zoomAt(f,e.clientX-rect.left,e.clientY-rect.top); }, {passive:false});
     container.addEventListener('mousedown',e=>{ isPanning=true; start={x:e.clientX-origin.x, y:e.clientY-origin.y}; container.style.cursor='grabbing'; });
     window.addEventListener('mousemove',e=>{ if(!isPanning) return; origin={x:e.clientX-start.x, y:e.clientY-start.y}; update(); });
