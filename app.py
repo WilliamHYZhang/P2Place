@@ -25,7 +25,7 @@ app.config['MODE'] = MODE
 app.config['NINES'] = NINES
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
 
 def compute_k(n_peers, nines):
     """
