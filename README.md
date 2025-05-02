@@ -120,13 +120,6 @@ This helps compare fullmesh vs k-gossip overlays at scale.
 
 ---
 
-## 👥 Authors
-
-- William Zhang ([@wzhang](https://github.com/wzhang))  
-- Miles Pines ([@milesp](https://github.com/milesp))  
-
----
-
 ## 📜 License
 
 MIT License. Feel free to fork, modify, and build on it.
